@@ -91,7 +91,7 @@ defmodule TelemetryMetricsCloudwatch.Cache do
   end
 
   defp coalesce(%Cache{summaries: summaries} = cache, %Summary{} = metric, measurement, tags) do
-    summaries = Map.update(summaries, {metric, tags}, [measurement], &(&1 ++ [measurement]))
+    summaries = Map.update(summaries, {metric, tags}, [measurement], &[measurement | &1])
     Map.put(cache, :summaries, summaries)
   end
 
