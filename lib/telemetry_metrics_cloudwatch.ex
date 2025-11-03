@@ -116,6 +116,7 @@ defmodule TelemetryMetricsCloudwatch do
   * `:push_interval` - The minimum interval that metrics are guaranteed to be pushed to cloudwatch (in milliseconds)
   * `:sample_rate` - Sampling factor to apply to metrics. 0.0 will deny all events, 1.0 will queue all events.
   * `:max_heap_size` - Maximum heap size for the GenServer process (defaults to 0, which means no limit)
+  * `:dry_run` - When true, metrics are processed but not sent to CloudWatch (defaults to false, useful for testing)
   """
   def start_link(opts) do
     server_opts = Keyword.take(opts, [:name])
@@ -129,16 +130,17 @@ defmodule TelemetryMetricsCloudwatch do
     push_interval = Keyword.get(opts, :push_interval, 60_000)
     sample_rate = Keyword.get(opts, :sample_rate, 1.0)
     max_heap_size = Keyword.get(opts, :max_heap_size, 0)
+    dry_run = Keyword.get(opts, :dry_run, false)
 
     GenServer.start_link(
       __MODULE__,
-      {metrics, namespace, push_interval, sample_rate, max_heap_size},
+      {metrics, namespace, push_interval, sample_rate, max_heap_size, dry_run},
       server_opts
     )
   end
 
   @impl true
-  def init({metrics, namespace, push_interval, sample_rate, max_heap_size}) do
+  def init({metrics, namespace, push_interval, sample_rate, max_heap_size, dry_run}) do
     Process.flag(:trap_exit, true)
     Process.flag(:max_heap_size, max_heap_size)
     groups = Enum.group_by(metrics, & &1.event_name)
@@ -153,7 +155,8 @@ defmodule TelemetryMetricsCloudwatch do
       namespace: namespace,
       last_run: System.monotonic_time(:second),
       push_interval: push_interval,
-      sample_rate: sample_rate
+      sample_rate: sample_rate,
+      dry_run: dry_run
     }
 
     schedule_push_check(state)
@@ -216,14 +219,22 @@ defmodule TelemetryMetricsCloudwatch do
     end
   end
 
-  defp push(%Cache{namespace: namespace} = state) do
+  defp push(%Cache{namespace: namespace, dry_run: dry_run} = state) do
     {state, metric_data} = Cache.pop_metrics(state)
-    Cloudwatch.send_metrics(metric_data, namespace)
+
+    if dry_run do
+      Logger.debug(
+        "#{__MODULE__} [DRY RUN] would push #{length(metric_data)} metrics to cloudwatch in namespace #{namespace}"
+      )
+    else
+      Cloudwatch.send_metrics(metric_data, namespace)
+    end
+
     Map.put(state, :last_run, System.monotonic_time(:second))
   end
 
   @impl true
-  def terminate(_, %Cache{metric_names: events, namespace: namespace} = state) do
+  def terminate(_, %Cache{metric_names: events, namespace: namespace, dry_run: dry_run} = state) do
     for event <- events do
       :telemetry.detach({__MODULE__, event, self()})
     end
@@ -233,8 +244,13 @@ defmodule TelemetryMetricsCloudwatch do
         :ok
 
       {_, metric_data} ->
-        Logger.debug("#{__MODULE__} flushing metrics")
-        Cloudwatch.send_metrics(metric_data, namespace)
+        if dry_run do
+          Logger.debug("#{__MODULE__} [DRY RUN] would flush #{length(metric_data)} metrics")
+        else
+          Logger.debug("#{__MODULE__} flushing metrics")
+          Cloudwatch.send_metrics(metric_data, namespace)
+        end
+
         :ok
     end
   end
