@@ -230,6 +230,9 @@ defmodule TelemetryMetricsCloudwatch do
       Cloudwatch.send_metrics(metric_data, namespace)
     end
 
+    # force garbage collection after flushing metrics to reclaim heap space
+    :erlang.garbage_collect(self())
+
     Map.put(state, :last_run, System.monotonic_time(:second))
   end
 
