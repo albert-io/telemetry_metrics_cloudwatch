@@ -115,6 +115,7 @@ defmodule TelemetryMetricsCloudwatch do
   * `:namespace` - Namespace to use in CloudWatch
   * `:push_interval` - The minimum interval that metrics are guaranteed to be pushed to cloudwatch (in milliseconds)
   * `:sample_rate` - Sampling factor to apply to metrics. 0.0 will deny all events, 1.0 will queue all events.
+  * `:scale_counters` - When true, counter values are scaled by (1/sample_rate) to correct for sampling (defaults to false)
   * `:max_heap_size` - Maximum heap size for the GenServer process (defaults to 0, which means no limit)
   * `:dry_run` - When true, metrics are processed but not sent to CloudWatch (defaults to false, useful for testing)
   """
@@ -129,18 +130,21 @@ defmodule TelemetryMetricsCloudwatch do
     namespace = Keyword.get(opts, :namespace, "Telemetry")
     push_interval = Keyword.get(opts, :push_interval, 60_000)
     sample_rate = Keyword.get(opts, :sample_rate, 1.0)
+    scale_counters = Keyword.get(opts, :scale_counters, false)
     max_heap_size = Keyword.get(opts, :max_heap_size, 0)
     dry_run = Keyword.get(opts, :dry_run, false)
 
     GenServer.start_link(
       __MODULE__,
-      {metrics, namespace, push_interval, sample_rate, max_heap_size, dry_run},
+      {metrics, namespace, push_interval, sample_rate, scale_counters, max_heap_size, dry_run},
       server_opts
     )
   end
 
   @impl true
-  def init({metrics, namespace, push_interval, sample_rate, max_heap_size, dry_run}) do
+  def init(
+        {metrics, namespace, push_interval, sample_rate, scale_counters, max_heap_size, dry_run}
+      ) do
     Process.flag(:trap_exit, true)
     Process.flag(:max_heap_size, max_heap_size)
     groups = Enum.group_by(metrics, & &1.event_name)
@@ -162,6 +166,7 @@ defmodule TelemetryMetricsCloudwatch do
       last_run: System.monotonic_time(:second),
       push_interval: push_interval,
       sample_rate: sample_rate,
+      scale_counters: scale_counters,
       dry_run: dry_run
     }
 
