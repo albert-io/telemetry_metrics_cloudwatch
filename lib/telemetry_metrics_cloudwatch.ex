@@ -142,7 +142,9 @@ defmodule TelemetryMetricsCloudwatch do
   end
 
   @impl true
-  def init({metrics, namespace, push_interval, sample_rate, scale_counters, max_heap_size, dry_run}) do
+  def init(
+        {metrics, namespace, push_interval, sample_rate, scale_counters, max_heap_size, dry_run}
+      ) do
     Process.flag(:trap_exit, true)
     Process.flag(:max_heap_size, max_heap_size)
     groups = Enum.group_by(metrics, & &1.event_name)
